@@ -32,6 +32,10 @@ jobs:
         run: npm ci
       - name: Build site
         run: npm run build
+        env:
+          # These are Supabase client-side public values; access is protected by RLS.
+          VITE_SUPABASE_URL: https://mrjnkshzmoxcwyhnluua.supabase.co
+          VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1yam5rc2h6bW94Y3d5aG5sdXVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA2OTExOTQsImV4cCI6MjEwNjI2NzE5NH0.V3TfZxvNJ6hbKfstDDl5FCS-dhILNLJd0WsoRyAtbMI
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
         with:

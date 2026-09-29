@@ -12,19 +12,23 @@ URL prévue après activation de GitHub Pages : https://coding-diligence.github.
 - Enregistrer le site web, l'e-mail et le nom d'un contact pour chaque entreprise.
 - Charger le favicon associé au site de l'entreprise, avec un avatar de remplacement si aucun logo n'est disponible.
 - Rechercher et filtrer les candidatures, avec quelques indicateurs de suivi.
-- Créer un compte local avec adresse e-mail et mot de passe, puis se connecter ou se déconnecter.
-- Conserver les données localement dans le navigateur avec `localStorage`.
+- Créer un compte sécurisé par e-mail et mot de passe avec Supabase Auth.
+- Synchroniser les candidatures dans Supabase entre les appareils, avec accès isolé par compte.
+- Importer les anciennes candidatures locales au premier chargement d'un compte cloud encore vide.
 
 ## Lancer l'application
 
 Prérequis : Node.js et npm installés.
 
 1. Installer les dépendances avec `npm install`.
-2. Démarrer le serveur local avec `npm run dev`.
-3. Créer une version de production avec `npm run build`.
+2. Créer un projet Supabase et exécuter le contenu de `supabase/schema.sql` dans **SQL Editor**.
+3. Copier `.env.example` vers `.env.local`, puis renseigner l'URL du projet et la clé publique (`anon`/publishable) depuis les paramètres API Supabase. Ne jamais utiliser la clé `service_role`.
+4. Dans Supabase **Authentication → URL Configuration**, ajouter l'URL du site (en local `http://localhost:5173`, en ligne `https://coding-diligence.github.io/Alt-Memo/`) aux URLs autorisées.
+5. Démarrer le serveur local avec `npm run dev`.
+6. Créer une version de production avec `npm run build`.
 
 ## Publication en ligne
 
-Chaque push sur la branche `main` déclenche automatiquement la publication sur GitHub Pages avec GitHub Actions. Pour la première publication, vérifiez dans **Settings → Pages** que la source de déploiement est **GitHub Actions**.
+Chaque push sur la branche `main` déclenche automatiquement la publication sur GitHub Pages avec GitHub Actions. Pour la première publication, vérifiez dans **Settings → Pages** que la source de déploiement est **GitHub Actions**. Le workflow injecte l’URL du projet et la clé publique Supabase au build ; cette clé est destinée au client web, et les politiques RLS protègent les données.
 
-Le compte et les données restent sur l'appareil et dans le navigateur utilisé ; ils ne sont pas synchronisés entre appareils. La connexion est uniquement locale au navigateur : ce n'est pas une authentification hébergée, et les comptes ne sont pas partagés entre utilisateurs ou appareils. Le mot de passe est haché côté navigateur, mais cette connexion locale ne remplace pas une authentification sécurisée par serveur pour un site public. La récupération des favicons nécessite une connexion internet.
+Les mots de passe sont gérés par Supabase Auth, jamais par Alt-Memo. Les règles RLS du schéma limitent chaque compte à ses propres candidatures. Les anciennes données locales sont importées au premier accès seulement si le compte cloud ne contient encore aucune candidature ; elles restent dans le navigateur comme copie. Ne publiez jamais la clé `service_role` : seule la clé publique est destinée au client web. La récupération des favicons nécessite une connexion internet.

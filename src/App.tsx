@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import type { User } from '@supabase/supabase-js'
 import {
   ArrowLeft,
   ArrowDownUp,
@@ -24,6 +25,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
+import { supabase, supabaseConfigured } from './lib/supabase'
 
 type Status = 'En attente' | 'À voir' | 'Accepté' | 'Refusé'
 type Application = {
@@ -40,10 +42,7 @@ type Application = {
 
 const STATUS_OPTIONS: Status[] = ['En attente', 'À voir', 'Accepté', 'Refusé']
 const STORAGE_KEY = 'alt-memo-applications-v1'
-const ACCOUNT_KEY = 'alt-memo-local-account-v1'
-const SESSION_KEY = 'alt-memo-session-v1'
 const DEMO_IDS = new Set(['1', '2', '3', '4', '5'])
-type LocalAccount = { email: string; salt: string; passwordHash: string }
 const day = (offset: number) => {
   const date = new Date()
   date.setDate(date.getDate() + offset)
@@ -60,27 +59,6 @@ function loadApplications(): Application[] {
     // If browser storage is unavailable or corrupted, start with an empty list.
   }
   return []
-}
-
-function loadAccount(): LocalAccount | null {
-  try {
-    const saved = localStorage.getItem(ACCOUNT_KEY)
-    return saved ? JSON.parse(saved) as LocalAccount : null
-  } catch {
-    return null
-  }
-}
-
-function encodeBase64(bytes: Uint8Array) {
-  return btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(''))
-}
-
-async function hashPassword(password: string, salt: Uint8Array) {
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits'])
-  const saltBuffer = new Uint8Array(salt.byteLength)
-  saltBuffer.set(salt)
-  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: saltBuffer.buffer, iterations: 210_000, hash: 'SHA-256' }, key, 256)
-  return encodeBase64(new Uint8Array(bits))
 }
 
 function initials(name: string) {
@@ -114,9 +92,11 @@ function App() {
     if (window.location.hash === '#statistiques') return 'statistics'
     return window.location.hash === '#candidatures' ? 'applications' : 'dashboard'
   })
-  const [applications, setApplications] = useState<Application[]>(loadApplications)
-  const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(sessionStorage.getItem(SESSION_KEY)) && Boolean(loadAccount()))
-  const [accountEmail, setAccountEmail] = useState(() => sessionStorage.getItem(SESSION_KEY) ?? '')
+  const [applications, setApplications] = useState<Application[]>([])
+  const [user, setUser] = useState<User | null>(null)
+  const [authReady, setAuthReady] = useState(false)
+  const [applicationsLoading, setApplicationsLoading] = useState(true)
+  const [dataError, setDataError] = useState('')
   const [query, setQuery] = useState('')
   const [activeFilter, setActiveFilter] = useState<'Toutes' | Status>('Toutes')
   const [sortOrder, setSortOrder] = useState<'date-desc' | 'date-asc' | 'name-asc'>('date-desc')
@@ -124,7 +104,64 @@ function App() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Application | null>(null)
   const [menuId, setMenuId] = useState<string | null>(null)
+  const [formError, setFormError] = useState('')
   const [form, setForm] = useState({ company: '', role: '', status: 'En attente' as Status, date: day(0), website: '', email: '', contact: '', notes: '' })
+
+  useEffect(() => {
+    if (!supabase) {
+      setAuthReady(true)
+      return
+    }
+    let active = true
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (!active) return
+      if (error) setDataError(error.message)
+      setUser(data.session?.user ?? null)
+      setAuthReady(true)
+    })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!active) return
+      setUser(session?.user ?? null)
+      setAuthReady(true)
+    })
+    return () => {
+      active = false
+      subscription.unsubscribe()
+    }
+  }, [])
+
+  useEffect(() => {
+    const client = supabase
+    if (!authReady) return
+    if (!user || !client) {
+      setApplications([])
+      setApplicationsLoading(false)
+      return
+    }
+    let active = true
+    setApplicationsLoading(true)
+    setDataError('')
+    const loadCloudApplications = async () => {
+      const { data, error } = await client.from('applications').select('id, company, role, status, date, website, email, contact, notes').order('date', { ascending: false })
+      if (error) throw error
+      let records = (data ?? []) as Application[]
+      if (records.length === 0) {
+        const localRecords = loadApplications()
+        if (localRecords.length) {
+          const { error: importError } = await client.from('applications').upsert(localRecords.map((item) => ({ ...item, user_id: user.id })))
+          if (importError) throw importError
+          records = localRecords
+        }
+      }
+      if (active) setApplications(records)
+    }
+    loadCloudApplications().catch((error: unknown) => {
+      if (active) setDataError(error instanceof Error ? error.message : 'Impossible de charger les candidatures.')
+    }).finally(() => {
+      if (active) setApplicationsLoading(false)
+    })
+    return () => { active = false }
+  }, [authReady, user])
 
   useEffect(() => {
     const syncPage = () => {
@@ -151,11 +188,6 @@ function App() {
     return () => window.removeEventListener('keydown', handleSearchShortcut)
   }, [])
 
-  const persist = (next: Application[]) => {
-    setApplications(next)
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)) } catch { /* App remains usable for this session. */ }
-  }
-
   const filtered = useMemo(() => applications
     .filter((item) => activeFilter === 'Toutes' || item.status === activeFilter)
     .filter((item) => `${item.company} ${item.role} ${item.contact} ${item.email}`.toLowerCase().includes(query.toLowerCase()))
@@ -173,59 +205,80 @@ function App() {
 
   const openCreate = () => {
     setEditing(null)
+    setFormError('')
     setForm({ company: '', role: '', status: 'En attente', date: day(0), website: '', email: '', contact: '', notes: '' })
     setModalOpen(true)
   }
 
   const openEdit = (item: Application) => {
     setEditing(item)
+    setFormError('')
     setForm({ company: item.company, role: item.role, status: item.status, date: item.date, website: item.website, email: item.email, contact: item.contact, notes: item.notes })
     setMenuId(null)
     setModalOpen(true)
   }
 
-  const saveApplication = (event: FormEvent<HTMLFormElement>) => {
+  const saveApplication = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    const client = supabase
+    if (!client || !user) return
     const item: Application = { ...form, company: form.company.trim(), role: form.role.trim(), id: editing?.id ?? crypto.randomUUID() }
-    if (editing) persist(applications.map((application) => application.id === editing.id ? item : application))
-    else persist([item, ...applications])
-    setModalOpen(false)
+    setFormError('')
+    try {
+      const { error } = await client.from('applications').upsert({ ...item, user_id: user.id })
+      if (error) throw error
+      setApplications((current) => editing
+        ? current.map((application) => application.id === editing.id ? item : application)
+        : [item, ...current])
+      setModalOpen(false)
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Impossible d’enregistrer la candidature.')
+    }
   }
 
-  const deleteApplication = (id: string) => {
-    if (window.confirm('Supprimer cette candidature ?')) persist(applications.filter((item) => item.id !== id))
+  const deleteApplication = async (id: string) => {
+    const client = supabase
+    if (!client || !user) return
+    if (window.confirm('Supprimer cette candidature ?')) {
+      try {
+        const { error } = await client.from('applications').delete().eq('id', id).eq('user_id', user.id)
+        if (error) throw error
+        setApplications((current) => current.filter((item) => item.id !== id))
+      } catch (error) {
+        setDataError(error instanceof Error ? error.message : 'Impossible de supprimer la candidature.')
+      }
+    }
     setMenuId(null)
   }
 
   const setField = (field: keyof typeof form, value: string) => setForm((current) => ({ ...current, [field]: value }))
 
   const register = async (email: string, password: string) => {
-    if (loadAccount()) throw new Error('Un compte existe déjà sur cet appareil. Connectez-vous avec cette adresse.')
-    const salt = crypto.getRandomValues(new Uint8Array(16))
-    const account: LocalAccount = { email: email.trim().toLowerCase(), salt: encodeBase64(salt), passwordHash: await hashPassword(password, salt) }
-    localStorage.setItem(ACCOUNT_KEY, JSON.stringify(account))
-    sessionStorage.setItem(SESSION_KEY, account.email)
-    setAccountEmail(account.email)
-    setIsAuthenticated(true)
+    if (!supabase) throw new Error('La synchronisation n’est pas configurée.')
+    const { data, error } = await supabase.auth.signUp({ email: email.trim(), password })
+    if (error) throw error
+    if (!data.session) throw new Error('Compte créé. Vérifiez votre boîte e-mail pour confirmer l’adresse, puis connectez-vous.')
+    setUser(data.user)
   }
 
   const signIn = async (email: string, password: string) => {
-    const account = loadAccount()
-    if (!account || account.email !== email.trim().toLowerCase()) throw new Error('Aucun compte associé à cet e-mail sur cet appareil.')
-    const salt = Uint8Array.from(atob(account.salt), (character) => character.charCodeAt(0))
-    if (await hashPassword(password, salt) !== account.passwordHash) throw new Error('Mot de passe incorrect.')
-    sessionStorage.setItem(SESSION_KEY, account.email)
-    setAccountEmail(account.email)
-    setIsAuthenticated(true)
+    if (!supabase) throw new Error('La synchronisation n’est pas configurée.')
+    const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
+    if (error) throw error
+    setUser(data.user)
   }
 
-  const signOut = () => {
-    sessionStorage.removeItem(SESSION_KEY)
-    setAccountEmail('')
-    setIsAuthenticated(false)
+  const signOut = async () => {
+    if (supabase) await supabase.auth.signOut()
+    setApplications([])
+    setUser(null)
   }
 
-  if (!isAuthenticated) return <AuthScreen onLogin={signIn} onRegister={register} />
+  if (!supabaseConfigured) return <SetupScreen />
+  if (!authReady) return <LoadingScreen message="Connexion sécurisée…" />
+  if (!user) return <AuthScreen onLogin={signIn} onRegister={register} />
+  if (applicationsLoading) return <LoadingScreen message="Synchronisation de vos candidatures…" />
+  if (dataError) return <DataErrorScreen message={dataError} onSignOut={signOut} />
 
   return (
     <div className="app-shell">
@@ -240,8 +293,8 @@ function App() {
           <a href="#statistiques" className={`nav-item ${page === 'statistics' ? 'active' : ''}`}><BarChart3 size={18} /> Statistiques</a>
         </nav>
         <div className="sidebar-account">
-          <span className="account-avatar">{accountEmail.slice(0, 1).toUpperCase()}</span>
-          <span className="account-email" title={accountEmail}>{accountEmail}</span>
+          <span className="account-avatar">{(user.email ?? '').slice(0, 1).toUpperCase()}</span>
+          <span className="account-email" title={user.email}>{user.email}</span>
           <button className="logout-button" onClick={signOut} aria-label="Se déconnecter" title="Se déconnecter"><LogOut size={16} /></button>
         </div>
       </aside>
@@ -280,7 +333,7 @@ function App() {
       </main>
 
       {modalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setModalOpen(false) }}><section className="application-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className="modal-header"><div><div className="modal-kicker"><Sparkles size={13} /> TON SUIVI, TOUT SIMPLEMENT</div><h2 id="modal-title">{editing ? 'Modifier la candidature' : 'Nouvelle candidature'}</h2><p>Garde toutes les infos importantes à portée de main.</p></div><button className="icon-button close-button" aria-label="Fermer" onClick={() => setModalOpen(false)}><X size={20} /></button></div>
-        <form onSubmit={saveApplication}><div className="form-grid"><label className="form-field full-field"><span>Nom de l'entreprise <i>*</i></span><input autoFocus required value={form.company} onChange={(event) => setField('company', event.target.value)} placeholder="Ex. Studio Créatif" /></label><label className="form-field full-field"><span>Intitulé du poste</span><input value={form.role} onChange={(event) => setField('role', event.target.value)} placeholder="Ex. Assistant·e communication" /></label>
+        <form onSubmit={saveApplication}><div className="form-grid">{formError && <p className="auth-error full-field" role="alert">{formError}</p>}<label className="form-field full-field"><span>Nom de l'entreprise <i>*</i></span><input autoFocus required value={form.company} onChange={(event) => setField('company', event.target.value)} placeholder="Ex. Studio Créatif" /></label><label className="form-field full-field"><span>Intitulé du poste</span><input value={form.role} onChange={(event) => setField('role', event.target.value)} placeholder="Ex. Assistant·e communication" /></label>
           <label className="form-field"><span>Date de demande</span><input type="date" value={form.date} onChange={(event) => setField('date', event.target.value)} /></label><label className="form-field"><span>Statut</span><select value={form.status} onChange={(event) => setField('status', event.target.value)}>{STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status}</option>)}</select></label>
           <label className="form-field full-field"><span>Site web <small>Pour retrouver le logo</small></span><div className="input-with-icon"><ExternalLink size={15} /><input type="url" value={form.website} onChange={(event) => setField('website', event.target.value)} placeholder="https://entreprise.fr" /></div><em>Le favicon du site sera affiché automatiquement si disponible.</em></label>
           <label className="form-field"><span>Nom du contact</span><input value={form.contact} onChange={(event) => setField('contact', event.target.value)} placeholder="Ex. Camille Dupont" /></label><label className="form-field"><span>E-mail du contact</span><input type="email" value={form.email} onChange={(event) => setField('email', event.target.value)} placeholder="camille@entreprise.fr" /></label>
@@ -288,6 +341,18 @@ function App() {
         </div><div className="modal-actions"><button type="button" className="cancel-button" onClick={() => setModalOpen(false)}>Annuler</button><button type="submit" className="primary-button"><Check size={17} /> {editing ? 'Enregistrer les changements' : 'Enregistrer la candidature'}</button></div></form></section></div>}
     </div>
   )
+}
+
+function LoadingScreen({ message }: { message: string }) {
+  return <main className="auth-page"><section className="auth-card loading-card" aria-live="polite"><a className="auth-brand" href="#accueil"><span className="brand-mark"><Sparkles size={19} strokeWidth={2.6} /></span><span>alt<span className="brand-light">-memo</span><small>TON ALTERNANCE, EN VUE.</small></span></a><div className="loading-indicator" /><p>{message}</p></section></main>
+}
+
+function SetupScreen() {
+  return <main className="auth-page"><section className="auth-card setup-card" aria-labelledby="setup-title"><a className="auth-brand" href="#accueil"><span className="brand-mark"><Sparkles size={19} strokeWidth={2.6} /></span><span>alt<span className="brand-light">-memo</span><small>TON ALTERNANCE, EN VUE.</small></span></a><div className="auth-heading"><div className="auth-icon"><LockKeyhole size={20} /></div><h1 id="setup-title">Synchronisation à configurer</h1><p>Ajoutez les identifiants du projet Supabase pour activer les comptes et sauvegarder vos candidatures sur tous vos appareils.</p></div><ol className="setup-steps"><li>Créez un projet Supabase.</li><li>Exécutez le script <strong>supabase/schema.sql</strong> dans le SQL Editor.</li><li>Copiez <strong>.env.example</strong> vers <strong>.env.local</strong> et renseignez l’URL du projet et sa clé publique.</li><li>Redémarrez le serveur de développement.</li></ol><p className="setup-security-note">Ne mettez jamais de clé <em>service_role</em> dans l’application. Seule la clé publique Supabase est utilisée, avec des règles d’accès par utilisateur.</p></section></main>
+}
+
+function DataErrorScreen({ message, onSignOut }: { message: string; onSignOut: () => void }) {
+  return <main className="auth-page"><section className="auth-card" role="alert"><div className="auth-heading"><div className="auth-icon"><LockKeyhole size={20} /></div><h1>Synchronisation impossible</h1><p>{message}</p></div><button className="auth-submit" onClick={() => window.location.reload()}>Réessayer</button><div className="auth-switch"><button onClick={onSignOut}>Se déconnecter</button></div></section></main>
 }
 
 function AuthScreen({ onLogin, onRegister }: {

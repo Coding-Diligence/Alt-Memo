@@ -2,7 +2,7 @@
 
 Alt-Memo est une application web en français pour centraliser le suivi des candidatures en alternance.
 
-Version en ligne : https://coding-diligence.github.io/Alt-Memo/
+URL prévue après activation de GitHub Pages : https://coding-diligence.github.io/Alt-Memo/
 
 ## Fonctionnalités
 

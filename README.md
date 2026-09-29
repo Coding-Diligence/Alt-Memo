@@ -2,6 +2,8 @@
 
 Alt-Memo est une application web en français pour centraliser le suivi des candidatures en alternance.
 
+Version en ligne : https://coding-diligence.github.io/Alt-Memo/
+
 ## Fonctionnalités
 
 - Ajouter, modifier et supprimer des candidatures.
@@ -21,4 +23,8 @@ Prérequis : Node.js et npm installés.
 2. Démarrer le serveur local avec `npm run dev`.
 3. Créer une version de production avec `npm run build`.
 
-Le compte et les données restent sur l'appareil et dans le navigateur utilisé ; ils ne sont pas synchronisés entre appareils. Le mot de passe est haché côté navigateur, mais cette connexion locale ne remplace pas une authentification sécurisée par serveur pour un site public. La récupération des favicons nécessite une connexion internet.
+## Publication en ligne
+
+Chaque push sur la branche `main` déclenche automatiquement la publication sur GitHub Pages avec GitHub Actions. Pour la première publication, vérifiez dans **Settings → Pages** que la source de déploiement est **GitHub Actions**.
+
+Le compte et les données restent sur l'appareil et dans le navigateur utilisé ; ils ne sont pas synchronisés entre appareils. La connexion est uniquement locale au navigateur : ce n'est pas une authentification hébergée, et les comptes ne sont pas partagés entre utilisateurs ou appareils. Le mot de passe est haché côté navigateur, mais cette connexion locale ne remplace pas une authentification sécurisée par serveur pour un site public. La récupération des favicons nécessite une connexion internet.

@@ -2,7 +2,7 @@
 
 Alt-Memo est une application web en français pour centraliser le suivi des candidatures en alternance.
 
-URL prévue après activation de GitHub Pages : https://coding-diligence.github.io/Alt-Memo/
+Application : [Alt-Memo](https://coding-diligence.github.io/Alt-Memo/)
 
 ## Fonctionnalités
 
@@ -15,6 +15,10 @@ URL prévue après activation de GitHub Pages : https://coding-diligence.github.
 - Créer un compte sécurisé par e-mail et mot de passe avec Supabase Auth.
 - Synchroniser les candidatures dans Supabase entre les appareils, avec accès isolé par compte.
 - Importer les anciennes candidatures locales au premier chargement d'un compte cloud encore vide.
+
+## Logo de l'onglet
+
+Placez le fichier PNG de l'icône dans `public/logo.png`. Vite l'utilisera comme favicon en local et sur GitHub Pages.
 
 ## Lancer l'application
 

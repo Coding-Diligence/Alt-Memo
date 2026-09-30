@@ -20,7 +20,6 @@ import {
   MoreHorizontal,
   Plus,
   Search,
-  Sparkles,
   Target,
   Trash2,
   X,
@@ -253,12 +252,25 @@ function App() {
 
   const setField = (field: keyof typeof form, value: string) => setForm((current) => ({ ...current, [field]: value }))
 
-  const register = async (email: string, password: string) => {
+  const register = async (email: string, password: string): Promise<boolean> => {
     if (!supabase) throw new Error('La synchronisation n’est pas configurée.')
-    const { data, error } = await supabase.auth.signUp({ email: email.trim(), password })
+    const { data, error } = await supabase.auth.signUp({ email: email.trim(), password, options: {
+      emailRedirectTo: `${window.location.origin}${import.meta.env.BASE_URL}`,
+    } })
     if (error) throw error
-    if (!data.session) throw new Error('Compte créé. Vérifiez votre boîte e-mail pour confirmer l’adresse, puis connectez-vous.')
+    if (!data.session) return false
     setUser(data.user)
+    return true
+  }
+
+  const resendConfirmation = async (email: string) => {
+    if (!supabase) throw new Error('La synchronisation n’est pas configurée.')
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: email.trim(),
+      options: { emailRedirectTo: `${window.location.origin}${import.meta.env.BASE_URL}` },
+    })
+    if (error) throw error
   }
 
   const signIn = async (email: string, password: string) => {
@@ -276,7 +288,7 @@ function App() {
 
   if (!supabaseConfigured) return <SetupScreen />
   if (!authReady) return <LoadingScreen message="Connexion sécurisée…" />
-  if (!user) return <AuthScreen onLogin={signIn} onRegister={register} />
+  if (!user) return <AuthScreen onLogin={signIn} onRegister={register} onResendConfirmation={resendConfirmation} />
   if (applicationsLoading) return <LoadingScreen message="Synchronisation de vos candidatures…" />
   if (dataError) return <DataErrorScreen message={dataError} onSignOut={signOut} />
 
@@ -284,12 +296,13 @@ function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <a className="brand" href="#accueil" aria-label="Alt-Memo, accueil">
-          <span className="brand-mark"><Sparkles size={19} strokeWidth={2.6} /></span>
+          <span className="brand-mark"><img src={`${import.meta.env.BASE_URL}logo.png`} alt="" /></span>
           <span>alt<span className="brand-light">-memo</span><small>TON ALTERNANCE, EN VUE.</small></span>
         </a>
         <div className="workspace-label">ESPACE PERSONNEL</div>
         <nav className="side-nav" aria-label="Navigation principale">
           <a href="#tableau" className={`nav-item ${page === 'dashboard' ? 'active' : ''}`}><LayoutDashboard size={18} /> Tableau de bord</a>
+          <a href="#candidatures" className={`nav-item ${page === 'applications' ? 'active' : ''}`}><BriefcaseBusiness size={18} /> Candidatures</a>
           <a href="#statistiques" className={`nav-item ${page === 'statistics' ? 'active' : ''}`}><BarChart3 size={18} /> Statistiques</a>
         </nav>
         <div className="sidebar-account">
@@ -328,11 +341,10 @@ function App() {
           <ApplicationResults items={filtered} query={query} menuId={menuId} setMenuId={setMenuId} openEdit={openEdit} deleteApplication={deleteApplication} openCreate={openCreate} />
         </section>
 
-        <footer className="dashboard-footer"><span><span className="footer-sparkle">✳</span> Tu as envoyé <b>{stats.week} candidature{stats.week > 1 ? 's' : ''}</b> cette semaine. Continue comme ça !</span><span className="footer-note">Fait avec soin pour ton avenir <span>♥</span></span></footer>
         </>}
       </main>
 
-      {modalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setModalOpen(false) }}><section className="application-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className="modal-header"><div><div className="modal-kicker"><Sparkles size={13} /> TON SUIVI, TOUT SIMPLEMENT</div><h2 id="modal-title">{editing ? 'Modifier la candidature' : 'Nouvelle candidature'}</h2><p>Garde toutes les infos importantes à portée de main.</p></div><button className="icon-button close-button" aria-label="Fermer" onClick={() => setModalOpen(false)}><X size={20} /></button></div>
+      {modalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setModalOpen(false) }}><section className="application-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className="modal-header"><div><div className="modal-kicker"><BriefcaseBusiness size={13} /> TON SUIVI, TOUT SIMPLEMENT</div><h2 id="modal-title">{editing ? 'Modifier la candidature' : 'Nouvelle candidature'}</h2><p>Garde toutes les infos importantes à portée de main.</p></div><button className="icon-button close-button" aria-label="Fermer" onClick={() => setModalOpen(false)}><X size={20} /></button></div>
         <form onSubmit={saveApplication}><div className="form-grid">{formError && <p className="auth-error full-field" role="alert">{formError}</p>}<label className="form-field full-field"><span>Nom de l'entreprise <i>*</i></span><input autoFocus required value={form.company} onChange={(event) => setField('company', event.target.value)} placeholder="Ex. Studio Créatif" /></label><label className="form-field full-field"><span>Intitulé du poste</span><input value={form.role} onChange={(event) => setField('role', event.target.value)} placeholder="Ex. Assistant·e communication" /></label>
           <label className="form-field"><span>Date de demande</span><input type="date" value={form.date} onChange={(event) => setField('date', event.target.value)} /></label><label className="form-field"><span>Statut</span><select value={form.status} onChange={(event) => setField('status', event.target.value)}>{STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status}</option>)}</select></label>
           <label className="form-field full-field"><span>Site web <small>Pour retrouver le logo</small></span><div className="input-with-icon"><ExternalLink size={15} /><input type="url" value={form.website} onChange={(event) => setField('website', event.target.value)} placeholder="https://entreprise.fr" /></div><em>Le favicon du site sera affiché automatiquement si disponible.</em></label>
@@ -344,40 +356,74 @@ function App() {
 }
 
 function LoadingScreen({ message }: { message: string }) {
-  return <main className="auth-page"><section className="auth-card loading-card" aria-live="polite"><a className="auth-brand" href="#accueil"><span className="brand-mark"><Sparkles size={19} strokeWidth={2.6} /></span><span>alt<span className="brand-light">-memo</span><small>TON ALTERNANCE, EN VUE.</small></span></a><div className="loading-indicator" /><p>{message}</p></section></main>
+  return <main className="auth-page"><section className="auth-card loading-card" aria-live="polite"><a className="auth-brand" href="#accueil"><span className="brand-mark"><img src={`${import.meta.env.BASE_URL}logo.png`} alt="" /></span><span>alt<span className="brand-light">-memo</span><small>TON ALTERNANCE, EN VUE.</small></span></a><div className="loading-indicator" /><p>{message}</p></section></main>
 }
 
 function SetupScreen() {
-  return <main className="auth-page"><section className="auth-card setup-card" aria-labelledby="setup-title"><a className="auth-brand" href="#accueil"><span className="brand-mark"><Sparkles size={19} strokeWidth={2.6} /></span><span>alt<span className="brand-light">-memo</span><small>TON ALTERNANCE, EN VUE.</small></span></a><div className="auth-heading"><div className="auth-icon"><LockKeyhole size={20} /></div><h1 id="setup-title">Synchronisation à configurer</h1><p>Ajoutez les identifiants du projet Supabase pour activer les comptes et sauvegarder vos candidatures sur tous vos appareils.</p></div><ol className="setup-steps"><li>Créez un projet Supabase.</li><li>Exécutez le script <strong>supabase/schema.sql</strong> dans le SQL Editor.</li><li>Copiez <strong>.env.example</strong> vers <strong>.env.local</strong> et renseignez l’URL du projet et sa clé publique.</li><li>Redémarrez le serveur de développement.</li></ol><p className="setup-security-note">Ne mettez jamais de clé <em>service_role</em> dans l’application. Seule la clé publique Supabase est utilisée, avec des règles d’accès par utilisateur.</p></section></main>
+  return <main className="auth-page"><section className="auth-card setup-card" aria-labelledby="setup-title"><a className="auth-brand" href="#accueil"><span className="brand-mark"><img src={`${import.meta.env.BASE_URL}logo.png`} alt="" /></span><span>alt<span className="brand-light">-memo</span><small>TON ALTERNANCE, EN VUE.</small></span></a><div className="auth-heading"><div className="auth-icon"><LockKeyhole size={20} /></div><h1 id="setup-title">Synchronisation à configurer</h1><p>Ajoutez les identifiants du projet Supabase pour activer les comptes et sauvegarder vos candidatures sur tous vos appareils.</p></div><ol className="setup-steps"><li>Créez un projet Supabase.</li><li>Exécutez le script <strong>supabase/schema.sql</strong> dans le SQL Editor.</li><li>Copiez <strong>.env.example</strong> vers <strong>.env.local</strong> et renseignez l’URL du projet et sa clé publique.</li><li>Redémarrez le serveur de développement.</li></ol><p className="setup-security-note">Ne mettez jamais de clé <em>service_role</em> dans l’application. Seule la clé publique Supabase est utilisée, avec des règles d’accès par utilisateur.</p></section></main>
 }
 
 function DataErrorScreen({ message, onSignOut }: { message: string; onSignOut: () => void }) {
   return <main className="auth-page"><section className="auth-card" role="alert"><div className="auth-heading"><div className="auth-icon"><LockKeyhole size={20} /></div><h1>Synchronisation impossible</h1><p>{message}</p></div><button className="auth-submit" onClick={() => window.location.reload()}>Réessayer</button><div className="auth-switch"><button onClick={onSignOut}>Se déconnecter</button></div></section></main>
 }
 
-function AuthScreen({ onLogin, onRegister }: {
+function AuthScreen({ onLogin, onRegister, onResendConfirmation }: {
   onLogin: (email: string, password: string) => Promise<void>
-  onRegister: (email: string, password: string) => Promise<void>
+  onRegister: (email: string, password: string) => Promise<boolean>
+  onResendConfirmation: (email: string) => Promise<void>
 }) {
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [confirmationRequired, setConfirmationRequired] = useState(false)
   const [busy, setBusy] = useState(false)
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError('')
+    setNotice('')
     if (mode === 'register' && password !== confirmation) {
       setError('Les mots de passe ne correspondent pas.')
       return
     }
     setBusy(true)
     try {
-      await (mode === 'login' ? onLogin(email, password) : onRegister(email, password))
+      if (mode === 'login') {
+        await onLogin(email, password)
+      } else if (!await onRegister(email, password)) {
+        setMode('login')
+        setPassword('')
+        setConfirmation('')
+        setConfirmationRequired(true)
+        setNotice('Compte créé. Confirmez votre adresse avec le lien reçu par e-mail, puis connectez-vous.')
+      }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Une erreur est survenue. Réessayez.')
+      const message = reason instanceof Error ? reason.message : ''
+      if (/email not confirmed|email_not_confirmed/i.test(message)) {
+        setConfirmationRequired(true)
+        setNotice('Confirmez votre adresse e-mail avant de vous connecter.')
+        setError('')
+      } else if (message === 'Invalid login credentials') {
+        setError('Adresse e-mail ou mot de passe incorrect.')
+      } else {
+        setError(message || 'Une erreur est survenue. Réessayez.')
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const resendConfirmationEmail = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      await onResendConfirmation(email)
+      setNotice('Un nouveau lien de confirmation vient de vous être envoyé.')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Impossible de renvoyer le lien. Réessayez.')
     } finally {
       setBusy(false)
     }
@@ -386,17 +432,18 @@ function AuthScreen({ onLogin, onRegister }: {
   return <main className="auth-page">
     <div className="auth-decoration auth-decoration-one" /><div className="auth-decoration auth-decoration-two" />
     <section className="auth-card" aria-labelledby="auth-title">
-      <a className="auth-brand" href="#accueil" aria-label="Alt-Memo, accueil"><span className="brand-mark"><Sparkles size={19} strokeWidth={2.6} /></span><span>alt<span className="brand-light">-memo</span><small>TON ALTERNANCE, EN VUE.</small></span></a>
+      <a className="auth-brand" href="#accueil" aria-label="Alt-Memo, accueil"><span className="brand-mark"><img src={`${import.meta.env.BASE_URL}logo.png`} alt="" /></span><span>alt<span className="brand-light">-memo</span><small>TON ALTERNANCE, EN VUE.</small></span></a>
       <div className="auth-heading"><div className="auth-icon"><LockKeyhole size={20} /></div><h1 id="auth-title">{mode === 'login' ? 'Bon retour !' : 'Créer mon compte'}</h1><p>{mode === 'login' ? 'Connectez-vous pour retrouver votre suivi.' : 'Créez votre espace personnel Alt-Memo.'}</p></div>
       <form className="auth-form" onSubmit={submit}>
         <label className="auth-field"><span>Adresse e-mail</span><div className="auth-input-wrap"><Mail size={16} /><input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="vous@exemple.fr" /></div></label>
         <label className="auth-field"><span>Mot de passe</span><div className="auth-input-wrap"><LockKeyhole size={16} /><input type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={8} required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="8 caractères minimum" /></div></label>
         {mode === 'register' && <label className="auth-field"><span>Confirmer le mot de passe</span><div className="auth-input-wrap"><LockKeyhole size={16} /><input type="password" autoComplete="new-password" minLength={8} required value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder="Retapez votre mot de passe" /></div></label>}
+        {notice && <p className="auth-success" role="status">{notice}</p>}
         {error && <p className="auth-error" role="alert">{error}</p>}
+        {confirmationRequired && <button className="auth-resend" type="button" onClick={resendConfirmationEmail} disabled={busy}>Renvoyer le lien de confirmation</button>}
         <button className="auth-submit" type="submit" disabled={busy}>{busy ? 'Veuillez patienter…' : mode === 'login' ? 'Se connecter' : 'Créer mon compte'}<ArrowRight size={17} /></button>
       </form>
       <div className="auth-switch">{mode === 'login' ? 'Pas encore de compte ?' : 'Vous avez déjà un compte ?'} <button onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError('') }}>{mode === 'login' ? 'Créer un compte' : 'Se connecter'}</button></div>
-      <div className="auth-local-note"><span className="live-dot" /> Compte local à cet appareil. Vos données ne sont pas envoyées sur un serveur.</div>
     </section>
   </main>
 }

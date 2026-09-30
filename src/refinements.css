@@ -371,7 +371,7 @@
 
 .status-chart-list{
   display: grid;
-  gap: 20px;
+  gap: 9px;
   padding: 11px 0 18px;
 }
 
@@ -381,6 +381,16 @@
   column-gap: 8px;
   row-gap: 8px;
   align-items: center;
+}
+
+.status-chart-row.status-toggle{
+  padding:7px 8px;
+  border:0;
+  border-radius:7px;
+  appearance:none;
+  -webkit-appearance:none;
+  background:transparent;
+  color:inherit;
 }
 
 .status-chart-label{
@@ -580,7 +590,7 @@
   }
 
   .status-chart-list{
-    gap: 17px;
+    gap: 9px;
   }
 }
 
